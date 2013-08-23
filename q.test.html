@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Q Demo</title>
+	<meta name="description" content="Demonstration of Q">
+	<meta name="keywords" content="JavaScript,Q">
+	<meta name="author" content="J Feingold">
+	<meta charset="UTF-8">
+	<style>
+		.red {
+			background-color: darkred;
+			color: white;
+			font-weight: bold;
+		}
+		.green {
+			background-color: darkgreen;
+			color: white;
+			font-weight: bold;
+		}
+		.clear {
+			background-color: inherit;
+			color: white;
+			font-weight: bold;
+		}
+		.group-header {
+			font-weight: bold;
+		}
+		body {
+			background-color: black;
+			color: white;
+			font-family: 'courier new';
+		}
+	</style>
+</head>
+<body>
+<h3>Q Demo</h3>
+<p>The test results show the successive processing of values.<br>On each step, the text indicates 'value-produced[: value-received]'.<br>The color indicates whether that step returned or threw the value it produced.</p>
+<input data-id="run-all" type="button" value="all">
+<table>
+	<thead>
+	<tr>
+		<td>&nbsp;</td>
+		<td><span class="group-header">test&nbsp;</span></td>
+		<td><span class="group-header">result&nbsp;</span></td>
+	</tr>
+	</thead>
+	<tbody id="results"></tbody>
+</table>
+
+<div style="display: none;">
+	<!-- we only want the row but it'll get mangled if it's not in a valid position. -->
+	<table>
+		<tr data-id="row-template">
+			<td><input data-id="go" type="button" value="go"></td>
+			<td data-id="test-num"></td>
+			<td data-id="results"></td>
+		</tr>
+	</table>
+</div>
+<script src="q-0.9.6.js"></script>
+<script src="jquery-1.9.1.js"></script>
+<script src="underscore-1.4.4.js"></script>
+<script>
+/*
+ * Demonstration of Q behavior.
+ * jfeingold
+ */
+'use strict';
+$(function () {
+	var testNum = 0;
+	var results = $('#results');
+	if (1 !== results.length) {
+		throw "Can't find results area. derp.";
+	}
+	var rowTemplate = $('[data-id="row-template"]');
+	if (1 !== rowTemplate.length) {
+		throw "Can't find row template. derp.";
+	}
+	$('[data-id="run-all"]').click(function () {
+		$('[data-id="go"]').click();
+	});
+	function addGroup(name) {
+		results.append('<tr><td>&nbsp;</td><td colspan="2"><span class="group-header">' + name + '</span></td></tr>');
+	}
+
+	/**
+	 * Defines a new test and adds it to the table.
+	 * @param name
+	 * @param test
+	 */
+	function addTest(test) {
+
+		var row = rowTemplate.clone();
+		var res = row.find('[data-id="results"]');
+
+		function addResult(status, message) {
+			function makeResultClass(status) {
+				if (null === status) {
+					return 'clear';
+				} else if (status) {
+					return 'green';
+				} else {
+					return 'red';
+				}
+			}
+			res.append('<span><span class="' + makeResultClass(status) + '">&nbsp;' + message + '&nbsp;</span>&nbsp;</span>');
+		}
+
+		++ testNum;
+		row.find('[data-id="test-num"]').text('' + testNum);
+		row.find('[data-id="test-name"]').text('' + name);
+		row.find('[data-id="go"]').click(function () {
+			res.empty();
+			/**
+			 * Returns a function that returns or throws a value.
+			 * This takes the place of the initial promise.
+			 * @param mode True for return, false for throw.
+			 * @returns {Function}
+			 */
+			function start(mode) {
+				return function () {
+					var value = 'start'
+					addResult(mode, value);
+					if (mode) { return value; } else { throw value; }
+				};
+			}
+			/**
+			 * Implements a handler (then, catch, etc.)
+			 * @param mode Whether to throw or return who.
+			 * @param who Supply some name that identifies what this handler is. This is the value produced by this handler.
+			 * @returns {Function} A function that uses the mode to process the value.
+			 */
+			function chain(mode, who) {
+				return function (value) {
+					addResult(mode, who + ': ' + value);
+					if (mode) { return who; } else { throw who; }
+				};
+			}
+
+			try {
+				test({start: start, chain: chain});
+			}
+			catch (e) {
+				addResult(null, 'UNCAUGHT: ' + e); // just in case
+			}
+		});
+		results.append(row);
+	}
+
+	addGroup('[then] [catch]');
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.then(op.chain(false, 'then'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(false, 'catch'));
+	});
+
+	addGroup('[then] [then] [catch]');
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.then(op.chain(true, 'then-1'));
+		q.then(op.chain(true, 'then-2'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.then(op.chain(false, 'then-1'));
+		q.then(op.chain(true, 'then-2'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then-1'));
+		q.then(op.chain(false, 'then-2'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then-1'));
+		q.then(op.chain(false, 'then-2'));
+		q.catch(op.chain(false, 'catch'));
+	});
+
+	addGroup('[then] [catch] [catch]');
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(true, 'catch-1'));
+		q.catch(op.chain(true, 'catch-2'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(false, 'catch-1'));
+		q.catch(op.chain(false, 'catch-2'));
+	});
+
+	addGroup('[then] [catch, catch]');
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(false, 'catch-1')).catch(op.chain(false, 'catch-2'));
+	});
+
+	addGroup('[then, catch, then, catch]');
+	addTest(function (op) {
+		Q.fcall(op.start(false))
+				.then(op.chain(true, 'then-1'))
+				.catch(op.chain(false, 'catch-1'))
+				.then(op.chain(true, 'then-2'))
+				.catch(op.chain(false, 'catch-2'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(false))
+				.then(op.chain(true, 'then-1'))
+				.catch(op.chain(true, 'catch-1'))
+				.then(op.chain(true, 'then-2'))
+				.catch(op.chain(false, 'catch-2'));
+	});
+
+	addGroup('[then, catch]');
+	addTest(function (op) {
+		Q.fcall(op.start(true)).
+				then(op.chain(true, 'then')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(false)).
+				then(op.chain(true, 'then')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(true)).
+				then(op.chain(false, 'then')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(false)).
+				then(op.chain(false, 'then')).
+				catch(op.chain(false, 'catch'));
+	});
+
+	addGroup('[then, then, catch]');
+	addTest(function (op) {
+		Q.fcall(op.start(true)).
+				then(op.chain(true, 'then-1')).
+				then(op.chain(true, 'then-2')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(false)).
+				then(op.chain(true, 'then-1')).
+				then(op.chain(true, 'then-2')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(true)).
+				then(op.chain(false, 'then-1')).
+				then(op.chain(true, 'then-2')).
+				catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		Q.fcall(op.start(true)).
+				then(op.chain(true, 'then-1')).
+				then(op.chain(false, 'then-2')).
+				catch(op.chain(true, 'catch'));
+	});
+
+	addGroup('Done means done?')
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.then(op.chain(true, 'then'));
+		q.done();
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true));
+		q.done();
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.then(op.chain(true, 'then'));
+		q.done();
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false));
+		q.done();
+		q.then(op.chain(true, 'then'));
+		q.catch(op.chain(true, 'catch'));
+	});
+	addTest(function(op) {
+		// save the promise
+		var q = Q.fcall(op.start(true));
+		var c1 = q.then(op.chain(true, 'then-1'));
+		// close the handlers
+		q.done();
+		c1.done();
+		// add more handlers.
+		q.then(op.chain(false, 'then-2')).
+				catch(op.chain(true, 'catch'));
+	});
+
+	addGroup('[then, then, catch], [then, catch]')
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true))
+		q.
+				then(op.chain(true, 'then-1-1')).
+				then(op.chain(true, 'then-1-2')).
+				catch(op.chain(true, 'catch-1'));
+		q.
+				then(op.chain(true, 'then-2-1')).
+				catch(op.chain(true, 'catch-2'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(true))
+		q.
+				then(op.chain(true, 'then-1-1')).
+				then(op.chain(false, 'then-1-2')).
+				catch(op.chain(true, 'catch-1'));
+		q.
+				then(op.chain(true, 'then-2-1')).
+				catch(op.chain(true, 'catch-2'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false))
+		q.
+				then(op.chain(true, 'then-1-1')).
+				then(op.chain(false, 'then-1-2')).
+				catch(op.chain(true, 'catch-1'));
+		q.
+				then(op.chain(false, 'then-2-1')).
+				catch(op.chain(true, 'catch-2'));
+	});
+	addTest(function (op) {
+		var q = Q.fcall(op.start(false))
+		q.
+				then(op.chain(true, 'then-1-1')).
+				then(op.chain(false, 'then-1-2')).
+				catch(op.chain(true, 'catch-1'));
+		q.
+				then(op.chain(true, 'then-2-1')).
+				catch(op.chain(true, 'catch-2'));
+	});
+});
+</script>
+</body>
+</html>
